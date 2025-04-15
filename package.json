@@ -10,10 +10,7 @@
     "web": "DARK_MODE=media expo start --web",
     "test": "jest --watchAll",
     "lint": "expo lint",
-    "dev": "turbo run dev",
-    "build": "turbo run build",
-    "clean": "turbo run clean && rm -rf node_modules",
-    "vercel-build": "npx expo export:web",
+    "vercel-build": "npx expo export -p web",
     "deploy": "vercel deploy"
   },
   "jest": {
