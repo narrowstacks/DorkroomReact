@@ -1,8 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Dimensions } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BorderCalculation } from '@/types/border';
-import { ASPECT_RATIOS, PAPER_SIZES, EASEL_SIZES, BLADE_THICKNESS } from '@/constants/border';
+import { BorderCalculation } from '../types/border';
+import { ASPECT_RATIOS, PAPER_SIZES, EASEL_SIZES, BLADE_THICKNESS } from '../constants/border';
 
 // Base paper size for blade thickness calculation (20x24)
 const BASE_PAPER_AREA = 20 * 24;
@@ -93,26 +92,6 @@ const calculateOptimalMinBorder = (
   return Number(optimalMinBorder.toFixed(2));
 };
 
-// Define the structure for a preset
-export interface Preset {
-  name: string;
-  aspectRatio: string;
-  paperSize: string;
-  customAspectWidth: string;
-  customAspectHeight: string;
-  customPaperWidth: string;
-  customPaperHeight: string;
-  minBorder: string;
-  enableOffset: boolean;
-  ignoreMinBorder: boolean;
-  horizontalOffset: string;
-  verticalOffset: string;
-  isLandscape: boolean;
-  isRatioFlipped: boolean;
-}
-
-const PRESETS_STORAGE_KEY = '@BorderCalculator:presets';
-
 export const useBorderCalculator = () => {
   // Form state
   const [aspectRatio, setAspectRatio] = useState(ASPECT_RATIOS[0].value);
@@ -142,44 +121,6 @@ export const useBorderCalculator = () => {
   const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
   const [cropScale, setCropScale] = useState(1);
   const [imageLayout, setImageLayout] = useState({ width: 0, height: 0 });
-
-  // Preset state
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [presetName, setPresetName] = useState(""); // State for the name input
-  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false); // Flag to track initial load
-
-  // Load presets from storage on mount
-  useEffect(() => {
-    const loadPresets = async () => {
-      try {
-        const storedPresets = await AsyncStorage.getItem(PRESETS_STORAGE_KEY);
-        if (storedPresets !== null) {
-          setPresets(JSON.parse(storedPresets));
-        }
-      } catch (e) {
-        console.error("Failed to load presets.", e);
-        // Handle error appropriately, maybe show a message to the user
-      }
-    };
-    loadPresets();
-    setIsInitialLoadComplete(true); // Mark initial load as complete
-  }, []);
-
-  // Save presets to storage whenever the presets array changes
-  useEffect(() => {
-    const savePresetsToStorage = async () => {
-      try {
-        await AsyncStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
-      } catch (e) {
-        console.error("Failed to save presets.", e);
-        // Handle error appropriately
-      }
-    };
-    // Only save if presets have been loaded (to avoid overwriting on initial load)
-    if (isInitialLoadComplete) { // Check if initial load is complete
-       savePresetsToStorage();
-    }
-  }, [presets, isInitialLoadComplete]); // Add flag to dependency array
 
   // Function to reset all values to defaults
   const resetToDefaults = () => {
@@ -350,29 +291,34 @@ export const useBorderCalculator = () => {
     
     // Find the appropriate easel size for the paper
     // Use oriented dimensions for easel size calculation
-    const easelInfo = findCenteringOffsets(paperWidth, paperHeight, isLandscape);
+    const currentEaselSize = findNextBiggestEaselSize(paperWidth, paperHeight);
   
+    // find the difference between the current easel size and the paper size
+    const easelWidthDifference = currentEaselSize.width - paperWidth;
+    const easelHeightDifference = currentEaselSize.height - paperHeight;
+
+    console.log(`Current easel size: ${currentEaselSize.width}x${currentEaselSize.height}`);
+
+    // Return 0 if the difference is 0 or negative, otherwise return the difference
+    const easelWidth = easelWidthDifference <= 0 ? 0 : easelWidthDifference;
+    const easelHeight = easelHeightDifference <= 0 ? 0 : easelHeightDifference;
+
+    console.log(`Easel width difference: ${easelWidthDifference}`);
+    console.log(`Easel height difference: ${easelHeightDifference}`);
+
+    // Get the offset and make sure it's positive
+    const easelWidthOffset = Math.abs(easelWidthDifference);
+    const easelHeightOffset = Math.abs(easelHeightDifference);
+
+    console.log(`Easel width offset: ${easelWidthOffset}`);
+    console.log(`Easel height offset: ${easelHeightOffset}`);
+
     // Calculate blade positions
     const bladeThickness = calculateBladeThickness(orientedPaperWidth, orientedPaperHeight);
-    // Apply easel centering offsets *only* if the paper size is non-standard
-    const effectiveOffsetX = easelInfo.isNonStandard ? easelInfo.offsetX : 0;
-    const effectiveOffsetY = easelInfo.isNonStandard ? easelInfo.offsetY : 0;
-
-    // Apply offsets correctly based on paper orientation
-    let horizontalBladeOffset = effectiveOffsetX;
-    let verticalBladeOffset = effectiveOffsetY;
-
-    if (isLandscape) {
-      // When paper is landscape, the easel's X offset affects vertical blades,
-      // and the easel's Y offset affects horizontal blades.
-      horizontalBladeOffset = effectiveOffsetY;
-      verticalBladeOffset = effectiveOffsetX;
-    }
-
-    const leftBladePos = printWidth + leftBorder - rightBorder + horizontalBladeOffset;
-    const rightBladePos = printWidth - leftBorder + rightBorder - horizontalBladeOffset;
-    const topBladePos = printHeight + topBorder - bottomBorder + verticalBladeOffset;
-    const bottomBladePos = printHeight - topBorder + bottomBorder - verticalBladeOffset;
+    const leftBladePos = printWidth + leftBorder - rightBorder + easelWidthOffset;
+    const rightBladePos = printWidth - leftBorder + rightBorder - easelWidthOffset;
+    const topBladePos = printHeight + topBorder - bottomBorder + easelHeightOffset;
+    const bottomBladePos = printHeight - topBorder + bottomBorder - easelHeightOffset;
 
     // Create warning message for blade positions
     let warningMessage = "";
@@ -415,8 +361,11 @@ export const useBorderCalculator = () => {
       bottomBladePos,
       bladeThickness,
       // Add easel information
-      isNonStandardSize: easelInfo.isNonStandard,
-      easelSize: easelInfo.easelSize
+      isNonStandardSize: easelWidthDifference > 0 || easelHeightDifference > 0,
+      easelSize: {
+        width: currentEaselSize?.width ?? 0,
+        height: currentEaselSize?.height ?? 0
+      }
     };
   }, [
     paperSize,
@@ -437,85 +386,24 @@ export const useBorderCalculator = () => {
   // Preview scaling
   const previewScale = useMemo(() => {
     if (!calculation) return 1;
-    const { width: windowWidth, height: windowHeight } = Dimensions.get("window");
-    // Maximum allowable preview dimensions
-    const maxWidth = Math.min(windowWidth - 32, 400);
-    const maxHeight = Math.min(windowHeight - 32, 400);
-    // Use calculated oriented paper dimensions
-    const { paperWidth, paperHeight } = calculation;
-    // Scale to fit within both maxWidth and maxHeight
-    return Math.min(
-      maxWidth / (paperWidth || 1),
-      maxHeight / (paperHeight || 1)
-    );
-  }, [calculation]);
-
-  // --- Preset Functions ---
-
-  const savePreset = async (name: string) => {
-    if (!name.trim()) {
-      console.warn("Preset name cannot be empty."); // Or show user feedback
-      return;
+    const { width } = Dimensions.get("window");
+    const maxPreviewWidth = Math.min(width - 32, 400);
+    const selectedPaper = PAPER_SIZES.find((p) => p.value === paperSize);
+    
+    // Use the orientation to determine the width for scaling
+    let paperWidth;
+    if (paperSize === "custom") {
+      paperWidth = isLandscape
+        ? parseFloat(customPaperHeight) || 0
+        : parseFloat(customPaperWidth) || 0;
+    } else {
+      paperWidth = isLandscape
+        ? selectedPaper?.height ?? 0
+        : selectedPaper?.width ?? 0;
     }
-    const newPreset: Preset = {
-      name: name.trim(),
-      aspectRatio,
-      paperSize,
-      customAspectWidth,
-      customAspectHeight,
-      customPaperWidth,
-      customPaperHeight,
-      minBorder,
-      enableOffset,
-      ignoreMinBorder,
-      horizontalOffset,
-      verticalOffset,
-      isLandscape,
-      isRatioFlipped,
-    };
-
-    setPresets(currentPresets => {
-      const existingIndex = currentPresets.findIndex(p => p.name === newPreset.name);
-      if (existingIndex > -1) {
-        // Update existing preset
-        const updatedPresets = [...currentPresets];
-        updatedPresets[existingIndex] = newPreset;
-        return updatedPresets;
-      } else {
-        // Add new preset
-        return [...currentPresets, newPreset];
-      }
-    });
-    // Clear the name input after saving
-    setPresetName("");
-  };
-
-  const loadPreset = (presetToLoad: Preset) => {
-    setAspectRatio(presetToLoad.aspectRatio);
-    setPaperSize(presetToLoad.paperSize);
-    setCustomAspectWidth(presetToLoad.customAspectWidth);
-    setCustomAspectHeight(presetToLoad.customAspectHeight);
-    setCustomPaperWidth(presetToLoad.customPaperWidth);
-    setCustomPaperHeight(presetToLoad.customPaperHeight);
-    setMinBorder(presetToLoad.minBorder);
-    setLastValidMinBorder(presetToLoad.minBorder); // Also update last valid
-    setEnableOffset(presetToLoad.enableOffset);
-    setIgnoreMinBorder(presetToLoad.ignoreMinBorder);
-    setHorizontalOffset(presetToLoad.horizontalOffset);
-    setVerticalOffset(presetToLoad.verticalOffset);
-    setIsLandscape(presetToLoad.isLandscape);
-    setIsRatioFlipped(presetToLoad.isRatioFlipped);
-    // Clear warnings when loading a preset
-    setOffsetWarning(null);
-    setBladeWarning(null);
-    setMinBorderWarning(null);
-    // Optionally set the loaded preset's name in the input
-    setPresetName(presetToLoad.name);
-  };
-
-  const deletePreset = async (nameToDelete: string) => {
-    setPresets(currentPresets => currentPresets.filter(p => p.name !== nameToDelete));
-  };
+    
+    return maxPreviewWidth / (paperWidth || 1);
+  }, [paperSize, customPaperWidth, customPaperHeight, isLandscape, calculation]);
 
   return {
     // State
@@ -575,82 +463,41 @@ export const useBorderCalculator = () => {
       setMinBorder(optimalBorder.toString());
     },
     resetToDefaults,
-    // Preset State & Functions
-    presets,
-    presetName,
-    setPresetName,
-    savePreset,
-    loadPreset,
-    deletePreset,
   };
 };
 
-// Function to calculate centering offsets within the easel
-function findCenteringOffsets(paperWidth: number, paperHeight: number, isLandscape: boolean) {
-  const orientedPaperWidth = isLandscape ? paperHeight : paperWidth;
-  const orientedPaperHeight = isLandscape ? paperWidth : paperHeight;
-
-  let bestFitEasel = null;
-  let minAreaDiff = Infinity;
-
-  // Sort easels by area to find the smallest fitting one first
-  const sortedEasels = [...EASEL_SIZES].sort((a, b) => (a.width * a.height) - (b.width * b.height));
-
-  // Find the smallest easel that fits the *oriented* paper
-  for (const easel of sortedEasels) {
-    // Check if easel fits the oriented paper in either rotation
-    const fitsCurrentOrientation = easel.width >= orientedPaperWidth && easel.height >= orientedPaperHeight;
-    const fitsFlippedOrientation = easel.width >= orientedPaperHeight && easel.height >= orientedPaperWidth;
-
-    if (fitsCurrentOrientation || fitsFlippedOrientation) {
-       // Check if this easel is a better fit (smaller area) than the current best fit
-      const areaDiff = (easel.width * easel.height) - (orientedPaperWidth * orientedPaperHeight);
-       // Use this easel if it's the first fit found or a smaller fit
-       if (bestFitEasel === null || areaDiff < minAreaDiff ) {
-          bestFitEasel = easel;
-          minAreaDiff = areaDiff;
-          // Since they are sorted, the first one we find is the smallest fitting
-          break;
-       }
-    }
+function findNextBiggestEaselSize(paperWidth: number, paperHeight: number) {
+  console.log(`Finding easel size for paper: ${paperWidth}x${paperHeight}`);
+  
+  // Find easel sizes that match either orientation of the paper
+  const closestEaselSize = EASEL_SIZES.find((easel) => 
+    // Normal orientation
+    (easel.width >= paperWidth && easel.height >= paperHeight) ||
+    // Flipped orientation
+    (easel.width >= paperHeight && easel.height >= paperWidth)
+  );
+  
+  console.log(`Closest easel size found:`, closestEaselSize);
+  
+  // Check for exact match in either orientation
+  if ((closestEaselSize?.width === paperWidth && closestEaselSize?.height === paperHeight) ||
+      (closestEaselSize?.width === paperHeight && closestEaselSize?.height === paperWidth)) {
+    console.log(`Exact match found, returning zeros`);
+    // For exact matches, return the actual paper dimensions
+    return {
+      width: paperWidth,
+      height: paperHeight
+    };
   }
-
-
-  // If no fitting easel found (e.g., paper larger than any easel)
-  if (!bestFitEasel) {
-     return {
-       easelSize: { width: orientedPaperWidth, height: orientedPaperHeight }, // Use paper dims as effective easel size
-       offsetX: 0,
-       offsetY: 0,
-       isNonStandard: true // Definitely non-standard if it doesn't fit any easel
-     };
-  }
-
-  // Calculate centering offsets based on the *oriented* paper dimensions and the chosen easel
-  const offsetX = (bestFitEasel.width - orientedPaperWidth) / 2;
-  const offsetY = (bestFitEasel.height - orientedPaperHeight) / 2;
-
-  // Determine if the *original* paper size is standard relative to easels.
-  // A paper size is "standard" for UI purposes if its original dimensions exactly match an easel size in either orientation.
-  let isOriginalPaperStandard = false;
-  for (const easel of EASEL_SIZES) {
-      if ((easel.width === paperWidth && easel.height === paperHeight) ||
-          (easel.width === paperHeight && easel.height === paperWidth)) {
-          isOriginalPaperStandard = true;
-          break;
-      }
-  }
-
-  // The paper *is* non-standard (for UI warning) if the original paper size doesn't match any easel size exactly.
-  const isPaperSizeNonStandard = !isOriginalPaperStandard;
-
-
-  return {
-    easelSize: bestFitEasel, // Return the actual easel dimensions being used for calculations
-    offsetX: offsetX,       // Centering offset needed for the *oriented* paper in the chosen easel
-    offsetY: offsetY,       // Centering offset needed for the *oriented* paper in the chosen easel
-    isNonStandard: isPaperSizeNonStandard // Flag for UI: True if original paper dims don't match *any* standard easel size
+  
+  // Otherwise return the easel dimensions
+  const result = {
+    width: closestEaselSize?.width ?? 0,
+    height: closestEaselSize?.height ?? 0
   };
+  
+  console.log(`Returning easel dimensions:`, result);
+  return result;
 }
 
 export default useBorderCalculator; 

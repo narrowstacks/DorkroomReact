@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   StyleSheet,
   View,
@@ -38,6 +38,7 @@ import {
   AlertText,
   InfoIcon,
 } from "@gluestack-ui/themed";
+import { Preset } from "@/hooks/useBorderCalculator";
 
 // Common aspect ratios
 const ASPECT_RATIOS = [
@@ -112,9 +113,17 @@ export default function BorderCalculator() {
     calculation,
     previewScale,
     minBorderWarning,
+    presets,
+    presetName,
+    setPresetName,
+    savePreset,
+    loadPreset,
+    deletePreset,
     calculateOptimalMinBorder,
     resetToDefaults,
   } = useBorderCalculator();
+
+  const [selectedPresetName, setSelectedPresetName] = useState<string | null>(null);
 
   const renderPicker = (
     value: string,
@@ -702,6 +711,68 @@ export default function BorderCalculator() {
                 </ThemedView>
               </>
             )}
+
+            {/* Preset Management Section */}
+            <ThemedView style={styles.presetSection}>
+              <ThemedText type="largeSemiBold" style={styles.subtitle}>Presets</ThemedText>
+              <ThemedView style={styles.formGroup}>
+                <ThemedText style={styles.label}>Preset Name:</ThemedText>
+                <TextInput
+                  style={[styles.input, { color: textColor, borderColor }]}
+                  value={presetName}
+                  onChangeText={setPresetName}
+                  placeholder="Enter preset name to save or load"
+                  placeholderTextColor={borderColor}
+                />
+                <Button 
+                  onPress={() => savePreset(presetName)}
+                  disabled={!presetName.trim()}
+                >
+                  <ButtonText>Save/Update Preset</ButtonText>
+                </Button>
+              </ThemedView>
+
+              {presets.length > 0 && (
+                <ThemedView style={styles.formGroup}>
+                  <ThemedText style={styles.label}>Load/Delete Preset:</ThemedText>
+                  {renderPicker(
+                    selectedPresetName || "",
+                    (value) => setSelectedPresetName(value || null),
+                    presets.map(p => ({ label: p.name, value: p.name })),
+                    "Select a preset"
+                  )}
+                  <HStack space="md" mt="$2">
+                    <Button
+                      flex={1}
+                      onPress={() => {
+                        const presetToLoad = presets.find(p => p.name === selectedPresetName);
+                        if (presetToLoad) {
+                          loadPreset(presetToLoad);
+                        }
+                      }}
+                      disabled={!selectedPresetName}
+                      variant="outline"
+                    >
+                      <ButtonText>Load Selected</ButtonText>
+                    </Button>
+                    <Button
+                      flex={1}
+                      onPress={() => {
+                        if (selectedPresetName) {
+                          deletePreset(selectedPresetName);
+                          setSelectedPresetName(null);
+                        }
+                      }}
+                      disabled={!selectedPresetName}
+                      action="negative"
+                      variant="outline"
+                    >
+                      <ButtonText>Delete Selected</ButtonText>
+                    </Button>
+                  </HStack>
+                </ThemedView>
+              )}
+            </ThemedView>
           </ThemedView>
         </ThemedView>
 
@@ -1070,5 +1141,11 @@ const styles = StyleSheet.create({
     minWidth: Platform.OS === "web" ? 140 : 160,
     justifyContent: "center",
     alignItems: "center",
+  },
+  presetSection: {
+    padding: 16,
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#ccc",
   },
 });
